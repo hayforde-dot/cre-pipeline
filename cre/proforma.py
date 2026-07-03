@@ -91,7 +91,9 @@ def unlevered_cash_flows(con: sqlite3.Connection, deal_id: int, scenario_id: int
     cfo = {r["year"]: r["cfo"] for r in rows}
 
     exit_cap = deal["exit_cap_rate"] + scen["exit_cap_delta"]
-    sale_price = noi[hold + 1] / exit_cap
+    # Workbook convention [Levered DCF R98 = S83/C13]: exit NOI carries
+    # capital reserves inside opex — that is our cfo line, not noi.
+    sale_price = cfo[hold + 1] / exit_cap
     sale_net = sale_price * (1 - deal["sale_cost_pct"])
 
     all_in = deal["purchase_price"] * (1 + deal["closing_cost_pct"])
@@ -101,4 +103,4 @@ def unlevered_cash_flows(con: sqlite3.Connection, deal_id: int, scenario_id: int
     total = [i + o + r for i, o, r in zip(investment, operating, reversion)]
     return dict(total=total, investment=investment, operating=operating,
                 reversion=reversion, sale_price=sale_price, sale_net=sale_net,
-                all_in_cost=all_in, noi_by_year=noi)
+                all_in_cost=all_in, noi_by_year=noi, cfo_by_year=cfo)

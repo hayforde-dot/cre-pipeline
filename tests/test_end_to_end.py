@@ -146,9 +146,9 @@ def test_lp_class_economics_unchanged_by_split(pipeline):
     base = report["stages"]["4_waterfall"]["base"]
     inst, fam = base["Institutional LP"], base["Family Office LP"]
     assert inst["contributions"] + fam["contributions"] == pytest.approx(
-        13167786.914277187, rel=1e-9)
+        13606299.919619603, rel=1e-9)
     assert inst["distributions"] + fam["distributions"] == pytest.approx(
-        22028248.0, rel=1e-4)
+        22001712.2, rel=1e-4)
     assert inst["irr"] == pytest.approx(fam["irr"], abs=1e-9)      # pari passu
-    assert inst["irr"] == pytest.approx(0.11637, abs=1e-4)
+    assert inst["irr"] == pytest.approx(0.10859, abs=1e-4)
     assert inst["distributions"] / fam["distributions"] == pytest.approx(63 / 27, rel=1e-9)

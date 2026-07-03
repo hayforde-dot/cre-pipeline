@@ -318,3 +318,166 @@ def write_underwriting_summary(con, deal_id, path, placeholder_notes=None):
                 c.number_format = '0.00%'
     wb.save(path)
     return path
+
+
+def write_valuation_workbook(con, deal_id, scenario_id, valuation: dict, path,
+                             placeholder_notes=None):
+    """Two-sheet workbook mirroring the firm's income-approach templates:
+    Method #1 Direct Cap (reserve-exclusive NOI / cap) and Method #2 DCF
+    (price from going-in cap, exit at drifted going-out cap, IRR/EM/Profit
+    as live formulas)."""
+    deal = con.execute("SELECT * FROM deals WHERE deal_id=?", (deal_id,)).fetchone()
+    pf1 = con.execute("""SELECT * FROM proforma_lines WHERE deal_id=? AND
+        scenario_id=? AND year=1""", (deal_id, scenario_id)).fetchone()
+    exps = con.execute("SELECT * FROM expense_lines WHERE deal_id=?", (deal_id,)).fetchall()
+    units = deal["units"] or 0
+    sf = units * (deal["avg_unit_sf"] or 0)
+    wb = Workbook()
+
+    def _hdr(ws, r, texts):
+        for j, t in enumerate(texts, start=1):
+            c = ws.cell(r, j, t)
+            c.font = Font(name='Arial', bold=True, color='FFFFFF', size=9)
+            c.fill = HDR_FILL
+        return r + 1
+
+    def _banner(ws, ncols):
+        if placeholder_notes:
+            ws.merge_cells(start_row=ws.max_row + 1, start_column=1,
+                           end_row=ws.max_row + 1, end_column=ncols)
+            c = ws.cell(ws.max_row, 1, "PREPARED FROM PLACEHOLDER ASSUMPTIONS — "
+                                       "ILLUSTRATIVE ONLY, NOT AN APPRAISAL")
+            c.font = Font(name='Arial', bold=True, color='9C5700')
+            c.fill = WARN_FILL
+
+    # ---------------- Method #1: Direct Cap ----------------
+    dc = valuation["direct_cap"]
+    ws = wb.active
+    ws.title = "Direct Cap"
+    ws.sheet_view.showGridLines = False
+    ws.cell(1, 1, "INCOME APPROACH — METHOD #1 DIRECT CAPITALIZATION"
+            ).font = Font(name='Arial', bold=True, size=13)
+    ws.cell(2, 1, f"{deal['name']}").font = Font(name='Arial', size=11)
+    _banner(ws, 5)
+    r = _hdr(ws, ws.max_row + 2, ["Stabilized Pro Forma (Year 1)", "Amount",
+                                  "/Unit/Yr", "/SF/Mo", "Underwriting Notes"])
+    rev_rows = [("Gross Potential Rent", pf1["gpr"], "rent roll x 12, grown"),
+                ("Loss-to-Lease", pf1["loss_to_lease"], "% of GPR"),
+                ("Concessions", pf1["concessions"], "% of GPR"),
+                ("Other Income", pf1["other_income"], "grown from year-1 inputs"),
+                ("Gross Revenue", pf1["gross_revenue"], ""),
+                ("General Vacancy & Credit Loss", pf1["general_vacancy"],
+                 "% of Gross Revenue"),
+                ("Effective Gross Revenue", pf1["egr"], "")]
+    first = r
+    for name, amt, note in rev_rows:
+        ws.cell(r, 1, name)
+        ws.cell(r, 2, amt).number_format = MONEY
+        ws.cell(r, 3, amt / units if units else None).number_format = MONEY
+        ws.cell(r, 4, amt / sf / 12 if sf else None).number_format = '0.00'
+        ws.cell(r, 5, note).font = Font(name='Arial', italic=True, size=9)
+        for j in (1, 2, 3):
+            ws.cell(r, j).font = Font(name='Arial', size=10,
+                                      bold=name in ("Effective Gross Revenue",
+                                                    "Gross Revenue"))
+        r += 1
+    r += 1
+    r = _hdr(ws, r, ["Operating Expenses (Year 1)", "Amount", "/Unit/Yr", "", "Notes"])
+    opex_total = 0.0
+    for e in exps:
+        if e["pct_of_egr"] is not None:
+            amt = e["pct_of_egr"] * pf1["egr"]
+            note = f"{e['pct_of_egr']:.0%} of EGR"
+        else:
+            amt = e["year1_amount"] or 0.0
+            note = f"year-1 input, grows {e['growth_rate'] or 0:.1%}/yr"
+        opex_total += amt
+        ws.cell(r, 1, e["name"]).font = Font(name='Arial', size=10)
+        ws.cell(r, 2, amt).number_format = MONEY
+        ws.cell(r, 3, amt / units if units else None).number_format = MONEY
+        ws.cell(r, 5, note).font = Font(name='Arial', italic=True, size=9)
+        r += 1
+    for label, amt, bold in [("Total Operating Expenses", opex_total, True),
+                             ("NET OPERATING INCOME", dc["noi"], True),
+                             ("Capital Reserves (below NOI)", dc["reserves"], False),
+                             ("Cash Flow from Operations", dc["cfo"], True)]:
+        ws.cell(r, 1, label).font = Font(name='Arial', bold=bold, size=10)
+        ws.cell(r, 2, amt).number_format = MONEY
+        ws.cell(r, 2).font = Font(name='Arial', bold=bold, size=10)
+        r += 1
+    r += 1
+    r = _hdr(ws, r, ["Valuation", "", "", "", ""])
+    val_rows = [("Market Cap Rate", dc["cap_rate"], PCT),
+                ("Indicated Value  (NOI ÷ Cap)", dc["value"], MONEY),
+                ("Value / Unit", dc["value_per_unit"], MONEY),
+                ("Value / SF", dc["value_per_sf"], '0.00'),
+                ("Purchase Price", dc["purchase_price"], MONEY),
+                ("Indicated Value vs Price", dc["premium_to_purchase"], '+0.0%;-0.0%')]
+    for name, v, fmt in val_rows:
+        ws.cell(r, 1, name).font = Font(name='Arial', size=10, bold="Indicated" in name)
+        c = ws.cell(r, 2, v)
+        c.number_format = fmt
+        c.font = Font(name='Arial', size=10, bold="Indicated" in name)
+        r += 1
+    r += 1
+    r = _hdr(ws, r, ["Cap Rate Sensitivity", "Value", "", "", ""])
+    for cap, v in dc["sensitivity"]:
+        ws.cell(r, 1, cap).number_format = PCT
+        ws.cell(r, 2, v).number_format = MONEY
+        for j in (1, 2):
+            ws.cell(r, j).font = Font(name='Arial', size=10)
+        r += 1
+    for col, w in zip("ABCDE", (34, 15, 12, 10, 40)):
+        ws.column_dimensions[col].width = w
+
+    # ---------------- Method #2: DCF ----------------
+    d = valuation["dcf"]
+    wd = wb.create_sheet("DCF")
+    wd.sheet_view.showGridLines = False
+    wd.cell(1, 1, "INCOME APPROACH — METHOD #2 DISCOUNTED CASH FLOW"
+            ).font = Font(name='Arial', bold=True, size=13)
+    wd.cell(2, 1, f"{deal['name']}").font = Font(name='Arial', size=11)
+    _banner(wd, 4)
+    r = wd.max_row + 2
+    assum = [("Going-in Cap Rate", d["going_in_cap"], PCT),
+             ("Going-out Cap Rate (going-in + 5bps × hold yrs)",
+              d["going_out_cap"], PCT),
+             ("Indicated Price  (Year-1 NOI ÷ Going-in Cap)", d["indicated_price"], MONEY),
+             ("All-in Cost (incl. closing)", d["all_in_cost"], MONEY),
+             ("Gross Sale Price (Forward NOI ÷ Going-out Cap)", d["sale_price"], MONEY),
+             ("Net Sale Proceeds", d["sale_proceeds"], MONEY),
+             ("Purchase Price (actual)", d["purchase_price"], MONEY),
+             ("Indicated Price vs Purchase Price", d["premium_to_purchase"],
+              '+0.0%;-0.0%')]
+    for name, v, fmt in assum:
+        wd.cell(r, 1, name).font = Font(name='Arial', size=10, bold="Indicated" in name)
+        c = wd.cell(r, 2, v)
+        c.number_format = fmt
+        c.font = Font(name='Arial', size=10, bold="Indicated" in name)
+        r += 1
+    r += 1
+    r = _hdr(wd, r, ["Year", "Unlevered Cash Flow", "", ""])
+    r0 = r
+    for p, cf in enumerate(d["cash_flows"]):
+        wd.cell(r, 1, p).font = Font(name='Arial', size=10)
+        wd.cell(r, 2, cf).number_format = MONEY
+        wd.cell(r, 2).font = Font(name='Arial', size=10)
+        r += 1
+    rN = r - 1
+    r += 1
+    ret = [("Unlevered IRR", f"=IRR(B{r0}:B{rN})", PCT),
+           ("Equity Multiple",
+            f'=SUMIF(B{r0}:B{rN},">0")/-SUMIF(B{r0}:B{rN},"<0")', '0.00"x"'),
+           ("Profit", f"=SUM(B{r0}:B{rN})", MONEY),
+           ("Supplementary: IRR at actual purchase price",
+            d["irr_at_purchase_price"], PCT)]
+    for name, v, fmt in ret:
+        wd.cell(r, 1, name).font = Font(name='Arial', bold=True, size=10)
+        c = wd.cell(r, 2, v)
+        c.number_format = fmt
+        c.font = Font(name='Arial', size=10)
+        r += 1
+    wd.column_dimensions['A'].width = 44
+    wd.column_dimensions['B'].width = 17
+    wb.save(path)
+    return path

@@ -26,6 +26,8 @@ outputs as queryable records.
 | 3 Capital stack | `cre/capital.py` | Equity/promote blocks of both waterfall sheets; calls funded against negative net CF (*Waterfalls* F42, *Draw Schedule* equity-first) |
 | 4 Waterfall | `cre/waterfall.py` | Two engines: `irr_hurdle` replicates *Waterfalls-Completed_2* (monthly hypothetical LP capital accounts, 4 hurdles, Co-GP recursion via parent stream); `american_dual_track` replicates *American-Style-Equity-Waterfall* (operating pref simple-on-contributions + capital-event compounding accounts) |
 | 5 LP reporting | `cre/reporting.py` | Statement per partner: contributions, distributions **by tier**, running capital position, DPI/IRR as live Excel formulas |
+| Valuation | `cre/valuation.py` | Method #1 Direct Cap replicates *Direct-Cap_Cap_Rate* (reserve-exclusive NOI ÷ cap, 'Sales Comps'!I14); Method #2 DCF replicates *Discounted_Cash_Flow-Completed-Template_2* (price = Yr-1 NOI ÷ going-in cap C9, going-out = going-in + 5bps × hold C14, returns block I5:I7) |
+| Doc extraction | `cre/extract.py` | Offering memorandum / rent roll upload → Claude → DRAFT payload for wizard review; never invents numbers, never auto-runs |
 
 ## Verification record (all in `tests/`)
 
@@ -109,3 +111,21 @@ To feed actuals into the waterfall as they occur:
   `build_proforma / underwrite / run_entity / write_lp_statement_*` 1:1.
 - Loss-to-lease is modeled as a constant % of GPR (your Levered DCF burns
   it off over time — not replicated).
+
+
+## Convention correction (v3)
+
+The exit sale and debt sizing previously used reserve-EXCLUSIVE NOI; the
+Levered DCF template's NOI (I83/S83) carries capital reserves inside
+opex. Both now use the reserve-inclusive measure (our `cfo`), matching
+the workbook. Base-case placeholder outcomes shifted accordingly (LP
+11.64% → 10.86%). The Direct Cap sheet intentionally capitalizes
+reserve-EXCLUSIVE NOI — each valuation method follows its own template.
+
+## Extraction
+
+`POST /api/extract` accepts up to 4 files (pdf/xlsx/csv/txt, ≤15 MB
+each), reads them with the Anthropic API, and returns
+`{draft_payload, notes, missing}` for wizard prefill. Requires
+`ANTHROPIC_API_KEY` on the server. Extracted values always land in the
+wizard for human review — the pipeline never runs directly on them.

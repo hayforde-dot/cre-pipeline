@@ -16,6 +16,7 @@ The site (Lovable) is the front end; this API runs the verified engine.
 
 ## Endpoints
 - POST /api/run                 run the 5-stage pipeline on a deal payload
+- POST /api/extract             upload OM / rent roll -> draft payload (needs ANTHROPIC_API_KEY)
 - GET  /api/download/{run}/{f}  download a generated workbook
 - GET  /api/sample              Meladon placeholder payload (demo autofill)
 - GET  /api/health
@@ -29,3 +30,11 @@ The site (Lovable) is the front end; this API runs the verified engine.
   can take ~30-60s to wake. The UI's loading state covers this.
 - Statement workbooks contain live Excel formulas; totals/IRR compute
   when opened in Excel, Google Sheets, or LibreOffice.
+
+## Enabling document extraction
+1. Get an API key at console.anthropic.com (usage-billed; a typical
+   OM extraction costs cents).
+2. On Render: your service -> Environment -> Add Environment Variable:
+   key ANTHROPIC_API_KEY, value your key. Save; Render redeploys.
+Without the key the endpoint returns a clear 503 and the rest of the
+API works normally.

@@ -69,7 +69,9 @@ def underwrite(con: sqlite3.Connection, deal_id: int, scenario_id: int,
     u = unlevered_cash_flows(con, deal_id, scenario_id)
     hold = deal["hold_period_years"]
     price = deal["purchase_price"]
-    noi = u["noi_by_year"]
+    # sizing / DSCR / DY / going-in cap all use reserve-inclusive NOI
+    # (= cfo), matching Levered DCF I83 where reserves sit inside opex
+    noi = u["cfo_by_year"]
 
     loans = []
     if structure != "unlevered":

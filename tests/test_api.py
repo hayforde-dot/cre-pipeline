@@ -21,11 +21,11 @@ def test_run_and_download_round_trip():
     assert r.status_code == 200, r.text
     body = r.json()
     wf = body["report"]["stages"]["4_waterfall"]["base"]
-    assert wf["Institutional LP"]["irr"] == pytest.approx(0.11637, abs=1e-4)
+    assert wf["Institutional LP"]["irr"] == pytest.approx(0.10859, abs=1e-4)
     assert wf["Family Office LP"]["irr"] == pytest.approx(
         wf["Institutional LP"]["irr"], abs=1e-9)
     assert set(body["files"]) == {"lp_statements", "cogp_statements",
-                                  "underwriting_summary"}
+                                  "underwriting_summary", "valuation"}
     for f in body["files"].values():
         d = client.get(f["url"])
         assert d.status_code == 200
@@ -44,7 +44,8 @@ def test_no_mezz_no_cogp_still_runs():
     p["is_placeholder"] = False
     r = client.post("/api/run", json=p)
     assert r.status_code == 200, r.text
-    assert set(r.json()["files"]) == {"lp_statements", "underwriting_summary"}
+    assert set(r.json()["files"]) == {"lp_statements", "underwriting_summary",
+                                      "valuation"}
     assert "4_waterfall_cogp" not in r.json()["report"]["stages"]
 
 

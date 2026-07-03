@@ -12,7 +12,8 @@ from .underwriting import underwrite
 from .capital import create_entity, build_capital_calls
 from .waterfall import run_entity, partner_metrics
 from .reporting import (write_lp_statement_workbook, write_lp_statement_markdown,
-                        write_underwriting_summary)
+                        write_underwriting_summary, write_valuation_workbook)
+from .valuation import run_valuation
 
 ASSUMPTION_KEYS = ("market_rent_growth", "loss_to_lease_pct", "concessions_pct",
                    "general_vacancy_pct", "capital_reserve_per_unit",
@@ -31,7 +32,7 @@ def validate_payload(p: dict) -> list[str]:
             errs.append(f"deal.{k} is required")
     if not p.get("rent_roll"):
         errs.append("at least one rent_roll row is required")
-    pr = p.get("partnership", {})
+    pr = p.get("partnership") or {}
     partners = pr.get("partners", [])
     if partners:
         s = sum(x.get("equity_pct", 0) for x in partners)
@@ -120,6 +121,12 @@ def run_full_pipeline(payload: dict, db_path=":memory:", out_dir: Path | None = 
         n: dict(noi_y1=v["noi_by_year"][1], noi_fwd=v["noi_by_year"][hold + 1],
                 sale_net=v["sale_net"]) for n, v in pf.items()}
 
+    # Income-approach valuations (Direct Cap + DCF), per scenario
+    vparams = dict(payload.get("valuation") or {})
+    vparams.setdefault("direct_cap_rate", payload["deal"]["exit_cap_rate"])
+    report["stages"]["valuation"] = {
+        n: run_valuation(con, deal_id, sid, vparams) for n, sid in scens.items()}
+
     # STAGE 2
     senior = dict(tranche="senior", **payload["senior_loan"])
     structures = [("senior", [senior])]
@@ -180,6 +187,11 @@ def run_full_pipeline(payload: dict, db_path=":memory:", out_dir: Path | None = 
             con, cogp["entity_id"], scens[stmt_scen], out_dir / f"{slug}_CoGP_Statements.xlsx",
             as_of=date.today(), period_dates=period_dates,
             placeholder_notes=ph_notes or None))
+    files["valuation"] = str(write_valuation_workbook(
+        con, deal_id, scens[stmt_scen],
+        report["stages"]["valuation"][stmt_scen],
+        out_dir / f"{slug}_Valuation_DirectCap_DCF.xlsx",
+        placeholder_notes=ph_notes or None))
     files["underwriting_summary"] = str(write_underwriting_summary(
         con, deal_id, out_dir / f"{slug}_Underwriting_Summary.xlsx",
         placeholder_notes=ph_notes or None))
@@ -259,5 +271,6 @@ MELADON_PAYLOAD = {
         "tiers": [
             {"tier_no": 1, "hurdle_rate": 0.15, "promote_pct": 0.0},
             {"tier_no": 2, "hurdle_rate": None, "promote_pct": 0.40}]},
+    "valuation": {"direct_cap_rate": 0.0565, "dcf_going_in_cap": 0.0565},
     "statement_scenario": "base",
 }
