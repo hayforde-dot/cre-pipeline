@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse
 from cre.intake import run_full_pipeline, validate_payload, MELADON_PAYLOAD
 
 app = FastAPI(title="CRE Deal Pipeline API", version="1.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
+app.add_middleware(CORSMiddleware, allow_origins=["https://hayfordfinancial.com"], allow_methods=["*"],
                    allow_headers=["*"])   # tighten to your site's domain in production
 
 RUNS_DIR = Path(tempfile.gettempdir()) / "cre_runs"
